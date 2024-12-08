@@ -1,478 +1,669 @@
-// Globalna zmienna na tłumaczenia
-let translations = {};
+// app.js
 
-// Klucz szyfrowania (domyślny)
-const DEFAULT_ENCRYPTION_KEY = "Twoj_Tajne_Klucz";
-
-// Funkcja ładowania tłumaczeń z pliku JSON
-async function loadTranslations(lang) {
-    try {
-        const response = await fetch(`locales/${lang}.json`);
-        translations = await response.json();
-        applyTranslations();
-    } catch (error) {
-        console.error("Błąd ładowania tłumaczeń:", error);
-    }
-}
-
-// Funkcja stosująca tłumaczenia do interfejsu
-function applyTranslations() {
-    document.querySelectorAll('[data-i18n]').forEach(element => {
-        const key = element.getAttribute('data-i18n');
-        if (translations[key]) {
-            element.textContent = translations[key];
-        }
-    });
-
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
-        const key = element.getAttribute('data-i18n-placeholder');
-        if (translations[key]) {
-            element.setAttribute('placeholder', translations[key]);
-        }
-    });
-}
-
-// Funkcja przełączająca tryb ciemny/jasny z pamięcią ustawień
-function toggleDarkMode() {
-    const body = document.body;
-    body.classList.toggle("dark-mode");
-
-    const isDarkMode = body.classList.contains("dark-mode");
-    document.getElementById("darkModeToggle").textContent = isDarkMode ? translations["title_dark"] || "Przełącz na Tryb Jasny" : translations["title_light"] || "Przełącz na Tryb Ciemny";
-
-    // Zapisz preferencję w localStorage
-    localStorage.setItem("darkMode", isDarkMode);
-}
-
-// Funkcja zmieniająca język interfejsu
-function changeLanguage(lang) {
-    localStorage.setItem("language", lang);
-    loadTranslations(lang);
-}
-
-// Funkcja oceniająca siłę hasła i aktualizująca wskaźnik
-function evaluatePasswordStrength(password) {
-    let score = 0;
-    if (password.length >= 8) score++;
-    if (password.length >= 12) score++;
-    if (/[A-Z]/.test(password)) score++;
-    if (/[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password)) score++;
-
-    let strength = translations["weak"] || "Słaba";
-    let strengthValue = 20;
-    let strengthColor = "bg-red-600";
-    let suggestion = "";
-
-    if (score >= 4) {
-        strength = translations["strong"] || "Silna";
-        strengthValue = 100;
-        strengthColor = "bg-green-600";
-    } else if (score >= 2) {
-        strength = translations["medium"] || "Średnia";
-        strengthValue = 60;
-        strengthColor = "bg-yellow-600";
-        suggestion = translations["passwordSuggestion"] || "Dodaj liczby lub symbole, aby wzmocnić hasło.";
-    } else {
-        strength = translations["weak"] || "Słaba";
-        strengthValue = 20;
-        strengthColor = "bg-red-600";
-        suggestion = translations["passwordSuggestionWeak"] || "Dodaj więcej znaków, liczb i symboli.";
+class CryptoManager {
+    constructor() {
+        this.key = null;
     }
 
-    const strengthBar = document.getElementById("strengthBar");
-    const strengthText = document.getElementById("strengthText");
-    const strengthContainer = document.getElementById("strengthContainer");
-
-    strengthBar.className = `${strengthColor} h-2.5 rounded-full transition`;
-    strengthBar.style.width = `${strengthValue}%`;
-    strengthText.textContent = strength;
-    strengthContainer.classList.remove("hidden");
-
-    // Dodanie sugestii
-    let suggestionElement = document.getElementById("strengthSuggestion");
-    if (!suggestionElement) {
-        suggestionElement = document.createElement("p");
-        suggestionElement.id = "strengthSuggestion";
-        suggestionElement.className = "text-sm text-gray-600 mt-1";
-        strengthContainer.appendChild(suggestionElement);
-    }
-    suggestionElement.innerHTML = suggestion ? `<a href="#" onclick="improvePassword()">${translations["improvePassword"] || "Kliknij tutaj, aby poprawić"}</a>` : "";
-}
-
-// Funkcja poprawiająca hasło
-function improvePassword() {
-    alert(translations["passwordSuggestion"] || "Dodaj liczby lub symbole, aby wzmocnić hasło.");
-}
-
-// Funkcja generująca standardowe hasło
-function generatePassword() {
-    const length = parseInt(document.getElementById("passwordLength").value);
-    const includeUppercase = document.getElementById("includeUppercase").checked;
-    const includeNumbers = document.getElementById("includeNumbers").checked;
-    const includeSymbols = document.getElementById("includeSymbols").checked;
-
-    const lowerChars = "abcdefghijklmnopqrstuvwxyz";
-    const upperChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const numberChars = "0123456789";
-    const symbolChars = "!@#$%^&*()_+[]{}<>?,.";
-
-    let allChars = lowerChars;
-    if (includeUppercase) allChars += upperChars;
-    if (includeNumbers) allChars += numberChars;
-    if (includeSymbols) allChars += symbolChars;
-
-    let password = "";
-    for (let i = 0; i < length; i++) {
-        const randomIndex = Math.floor(Math.random() * allChars.length);
-        password += allChars[randomIndex];
-    }
-
-    return password;
-}
-
-// Funkcja generująca zaawansowane hasło według wzoru
-function generateAdvancedPassword(pattern, startWithLetter) {
-    const lowerChars = "abcdefghijklmnopqrstuvwxyz";
-    const upperChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const numberChars = "0123456789";
-    const symbolChars = "!@#$%^&*()_+[]{}<>?,.";
-
-    let password = "";
-
-    for (let i = 0; i < pattern.length; i++) {
-        const char = pattern[i];
-        let chars = "";
-        switch(char) {
-            case 'L':
-                chars = lowerChars + upperChars;
-                break;
-            case '#':
-                chars = numberChars;
-                break;
-            case '!':
-                chars = symbolChars;
-                break;
-            default:
-                chars = char; // Literal character
-                break;
-        }
-        if (chars.length === 1) {
-            password += chars;
+    async initializeKey() {
+        const storedKey = localStorage.getItem("encryptionKey");
+        if (storedKey) {
+            this.key = await crypto.subtle.importKey(
+                "raw",
+                this.hexToArrayBuffer(storedKey),
+                { name: "AES-GCM" },
+                true,
+                ["encrypt", "decrypt"]
+            );
         } else {
-            const randomIndex = Math.floor(Math.random() * chars.length);
-            password += chars[randomIndex];
+            const key = await crypto.subtle.generateKey(
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            const rawKey = await crypto.subtle.exportKey("raw", key);
+            localStorage.setItem("encryptionKey", this.arrayBufferToHex(rawKey));
+            this.key = key;
         }
     }
 
-    if (startWithLetter && !/^[A-Za-z]/.test(password)) {
-        const firstChar = lowerChars + upperChars;
-        const randomIndex = Math.floor(Math.random() * firstChar.length);
-        password = firstChar[randomIndex] + password.slice(1);
+    async encrypt(text) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(text);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            this.key,
+            data
+        );
+        return this.arrayBufferToHex(iv) + this.arrayBufferToHex(encrypted);
     }
 
-    return password;
-}
-
-// Funkcja generująca PIN
-function generatePIN(length) {
-    const numberChars = "0123456789";
-    let pin = "";
-    for (let i = 0; i < length; i++) {
-        const randomIndex = Math.floor(Math.random() * numberChars.length);
-        pin += numberChars[randomIndex];
+    async decrypt(hex) {
+        try {
+            const iv = this.hexToArrayBuffer(hex.slice(0, 24));
+            const encrypted = this.hexToArrayBuffer(hex.slice(24));
+            const decrypted = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: iv },
+                this.key,
+                encrypted
+            );
+            const decoder = new TextDecoder();
+            return decoder.decode(decrypted);
+        } catch (error) {
+            console.error("Decryption failed:", error);
+            return "Błąd odszyfrowania";
+        }
     }
-    return pin;
+
+    arrayBufferToHex(buffer) {
+        return Array.prototype.map.call(new Uint8Array(buffer), x => ('00' + x.toString(16)).slice(-2)).join('');
+    }
+
+    hexToArrayBuffer(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < bytes.length; i++) {
+            bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
+        return bytes.buffer;
+    }
 }
 
-// Funkcja szyfrująca tekst z dynamicznym kluczem
-function encrypt(text) {
-    const key = document.getElementById("encryptionKey").value || DEFAULT_ENCRYPTION_KEY;
-    return CryptoJS.AES.encrypt(text, key).toString();
+class TranslationManager {
+    constructor() {
+        this.currentLanguage = localStorage.getItem("language") || "pl";
+        this.translations = {};
+    }
+
+    async loadTranslations() {
+        try {
+            const response = await fetch(`locales/${this.currentLanguage}.json`);
+            if (!response.ok) throw new Error('Translation file not found.');
+            this.translations = await response.json();
+            this.applyTranslations();
+        } catch (error) {
+            console.error("Error loading translations:", error);
+        }
+    }
+
+    applyTranslations() {
+        document.querySelectorAll('[data-i18n]').forEach(element => {
+            const key = element.getAttribute("data-i18n");
+            if (this.translations[key]) {
+                element.textContent = this.translations[key];
+            }
+        });
+
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(element => {
+            const key = element.getAttribute("data-i18n-placeholder");
+            if (this.translations[key]) {
+                element.setAttribute("placeholder", this.translations[key]);
+            }
+        });
+    }
+
+    setLanguage(lang) {
+        this.currentLanguage = lang;
+        localStorage.setItem("language", lang);
+        this.loadTranslations();
+    }
+
+    getTranslation(key) {
+        return this.translations[key] || key;
+    }
 }
 
-// Funkcja odszyfrowująca tekst z dynamicznym kluczem
-function decrypt(ciphertext) {
-    const key = document.getElementById("encryptionKey").value || DEFAULT_ENCRYPTION_KEY;
-    const bytes = CryptoJS.AES.decrypt(ciphertext, key);
-    return bytes.toString(CryptoJS.enc.Utf8);
+class PasswordGenerator {
+    constructor(translationManager) {
+        this.translationManager = translationManager;
+        this.worker = new Worker('workers/passwordWorker.js');
+
+        // Listener na wiadomości z workera
+        this.worker.onmessage = (e) => {
+            const { action, password } = e.data;
+            if (action === "passwordGenerated") {
+                if (this.onPasswordGenerated) {
+                    this.onPasswordGenerated(password);
+                }
+            }
+        };
+
+        // Callback, który będzie wywoływany po wygenerowaniu hasła
+        this.onPasswordGenerated = null;
+    }
+
+    generatePassword(mode, settings, callback) {
+        this.onPasswordGenerated = callback;
+        this.worker.postMessage({ action: "generatePassword", data: { mode, settings } });
+    }
 }
 
-// Funkcja główna generująca hasła lub PIN
-function generate() {
-    const mode = document.getElementById("generationMode").value;
-    const quantity = parseInt(document.getElementById("quantity").value);
-    let output = "";
+class HistoryManager {
+    constructor(cryptoManager, translationManager) {
+        this.cryptoManager = cryptoManager;
+        this.translationManager = translationManager;
+        this.historyLimit = 20;
+    }
 
-    for (let i = 0; i < quantity; i++) {
-        let generated;
-        if (mode === "standard") {
-            generated = generatePassword();
-        } else if (mode === "advanced") {
-            const pattern = document.getElementById("pattern").value.trim();
-            const startWithLetter = document.getElementById("startWithLetter").checked;
-            if (pattern === "") {
-                alert(translations["patternPlaceholder"] || "Please enter a pattern for advanced generation.");
+    async saveToHistory(password, tag = "") {
+        let history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
+        const encryptedPassword = await this.cryptoManager.encrypt(password);
+        history.push({ password: encryptedPassword, tag: tag });
+        if (history.length > this.historyLimit) history = history.slice(-this.historyLimit); // Zachowaj ostatnie 20 wpisów
+        localStorage.setItem("passwordHistory", JSON.stringify(history));
+        UIManager.updateHistoryDisplay();
+    }
+
+    async getHistory() {
+        const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
+        const decryptedHistory = [];
+        for (const entry of history) {
+            const decrypted = await this.cryptoManager.decrypt(entry.password);
+            decryptedHistory.push({ password: decrypted, tag: entry.tag });
+        }
+        return decryptedHistory;
+    }
+
+    async clearHistory() {
+        if (confirm(this.translationManager.getTranslation("confirmClear"))) {
+            localStorage.removeItem("passwordHistory");
+            UIManager.updateHistoryDisplay();
+            alert(this.translationManager.getTranslation("clearSuccess"));
+        }
+    }
+
+    async deleteHistoryItem(index) {
+        let history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
+        history.splice(index, 1);
+        localStorage.setItem("passwordHistory", JSON.stringify(history));
+        UIManager.updateHistoryDisplay();
+    }
+
+    async exportToKeePass() {
+        const history = await this.getHistory();
+        if (history.length === 0) {
+            alert(this.translationManager.getTranslation("exportError"));
+            return;
+        }
+
+        let csvContent = "Title,Username,Password,URL,Notes\n";
+        history.forEach((entry, index) => {
+            const escapedPassword = entry.password.replace(/"/g, '""'); // Escaping quotes
+            const escapedTag = entry.tag.replace(/"/g, '""');
+            csvContent += `"Password ${index + 1}",,"${escapedPassword}",,"${escapedTag}"\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: "text/csv" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "keePass_export.csv";
+        link.click();
+
+        alert(this.translationManager.getTranslation("exportSuccess"));
+        UIManager.closeExportModal();
+    }
+
+    async exportToLastPass() {
+        const history = await this.getHistory();
+        if (history.length === 0) {
+            alert(this.translationManager.getTranslation("exportError"));
+            return;
+        }
+
+        let csvContent = "url,username,password,notes\n";
+        history.forEach((entry, index) => {
+            const escapedPassword = entry.password.replace(/"/g, '""'); // Escaping quotes
+            const escapedTag = entry.tag.replace(/"/g, '""');
+            csvContent += `,Password ${index + 1},"${escapedPassword}","${escapedTag}"\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: "text/csv" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "lastPass_export.csv";
+        link.click();
+
+        alert(this.translationManager.getTranslation("exportSuccess"));
+        UIManager.closeExportModal();
+    }
+
+    async importFromCSV(file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const content = e.target.result;
+                const lines = content.split('\n').slice(1); // Pomijamy nagłówek
+                for (const line of lines) {
+                    const [title, username, password, url, notes] = line.split(',');
+                    if (password) {
+                        const decryptedPassword = password.replace(/""/g, '"').replace(/^"|"$/g, '');
+                        const decryptedTag = notes.replace(/""/g, '"').replace(/^"|"$/g, '');
+                        await this.saveToHistory(decryptedPassword, decryptedTag);
+                    }
+                }
+                alert(this.translationManager.getTranslation("importSuccess"));
+                UIManager.updateHistoryDisplay();
+            } catch (error) {
+                console.error("Error importing CSV:", error);
+                alert(this.translationManager.getTranslation("importError"));
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    async filterHistoryByTag(tag) {
+        const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
+        const filteredHistory = [];
+
+        for (const entry of history) {
+            const decryptedPassword = await this.cryptoManager.decrypt(entry.password);
+            if (entry.tag.toLowerCase().includes(tag.toLowerCase())) {
+                filteredHistory.push({ password: decryptedPassword, tag: entry.tag });
+            }
+        }
+
+        return filteredHistory;
+    }
+}
+
+class UIManager {
+    constructor(cryptoManager, translationManager, passwordGenerator, historyManager) {
+        this.cryptoManager = cryptoManager;
+        this.translationManager = translationManager;
+        this.passwordGenerator = passwordGenerator;
+        this.historyManager = historyManager;
+    }
+
+    static initialize() {
+        this.cryptoManager = new CryptoManager();
+        this.translationManager = new TranslationManager();
+        this.passwordGenerator = new PasswordGenerator(this.translationManager);
+        this.historyManager = new HistoryManager(this.cryptoManager, this.translationManager);
+
+        const app = new App(this.cryptoManager, this.translationManager, this.passwordGenerator, this.historyManager);
+        app.initialize();
+    }
+
+    static addExportImportEventListeners() {
+        // Eksport do KeePass
+        document.getElementById("exportKeePass").addEventListener("click", () => {
+            this.historyManager.exportToKeePass();
+        });
+
+        // Eksport do LastPass
+        document.getElementById("exportLastPass").addEventListener("click", () => {
+            this.historyManager.exportToLastPass();
+        });
+
+        // Import ustawień
+        document.getElementById("importSettingsFile").addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                this.historyManager.importFromCSV(file);
+                this.closeExportModal();
+            }
+        });
+    }
+
+    static addHistoryFilterListener() {
+        const filterInput = document.getElementById("filterTag");
+        filterInput.addEventListener("input", async (e) => {
+            const tag = e.target.value.trim();
+            if (tag === "") {
+                // Wyświetl całą historię
+                await this.updateHistoryDisplay();
+            } else {
+                const filteredHistory = await this.historyManager.filterHistoryByTag(tag);
+                this.displayFilteredHistory(filteredHistory);
+            }
+        });
+    }
+
+    static addTutorialEventListener() {
+        const tutorialButton = document.getElementById("tutorialButton");
+        tutorialButton.addEventListener("click", () => {
+            this.openTutorialModal();
+        });
+    }
+
+    static openTutorialModal() {
+        document.getElementById("tutorialModal").classList.remove("hidden");
+    }
+
+    static closeTutorialModal() {
+        document.getElementById("tutorialModal").classList.add("hidden");
+    }
+
+    static openExportModal() {
+        document.getElementById("exportModal").classList.remove("hidden");
+    }
+
+    static closeExportModal() {
+        document.getElementById("exportModal").classList.add("hidden");
+    }
+
+    static closeSettingsModal() {
+        document.getElementById("settingsModal").classList.add("hidden");
+    }
+
+    static updateLengthDisplay(value) {
+        document.getElementById("lengthDisplay").textContent = value;
+    }
+
+    static changeTheme(theme) {
+        const body = document.body;
+        body.classList.remove("theme-default", "theme-dark", "theme-solarized");
+
+        if (theme === "default") {
+            body.classList.add("theme-default");
+        } else if (theme === "dark") {
+            body.classList.add("theme-dark");
+        } else if (theme === "solarized") {
+            body.classList.add("theme-solarized");
+        }
+
+        // Save preference to localStorage
+        localStorage.setItem("theme", theme);
+    }
+
+    static applyCustomTheme() {
+        const bgColor = document.getElementById("customBgColor").value;
+        const textColor = document.getElementById("customTextColor").value;
+        const borderColor = document.getElementById("customBorderColor").value;
+        const shadowColor = document.getElementById("customShadowColor").value;
+
+        // Tworzymy unikalną nazwę dla niestandardowego motywu
+        const themeName = `custom-${Date.now()}`;
+
+        // Dodajemy dynamiczny styl do dokumentu
+        const style = document.createElement("style");
+        style.innerHTML = `
+            .${themeName} {
+                --bg-color: ${bgColor};
+                --text-color: ${textColor};
+                --border-color: ${borderColor};
+                --shadow-color: ${shadowColor};
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Zastosowanie niestandardowego motywu
+        const body = document.body;
+        body.classList.remove("theme-default", "theme-dark", "theme-solarized", ...Array.from(body.classList).filter(cls => cls.startsWith("custom-")));
+        body.classList.add(themeName);
+
+        // Zapisujemy niestandardowy motyw w localStorage
+        localStorage.setItem("theme", themeName);
+
+        alert(this.translationManager.getTranslation("customThemeApplied"));
+    }
+
+    static async generatePassword(event) {
+        event.preventDefault();
+        const mode = document.getElementById("generationMode").value;
+        const quantity = parseInt(document.getElementById("quantity").value);
+        const length = parseInt(document.getElementById("passwordLength").value);
+
+        // Validation
+        if (!this.validateQuantity(quantity)) return;
+        if (mode !== "pin" && !this.validatePasswordLength(length)) return;
+
+        let settings = {
+            length: length,
+            includeUppercase: document.getElementById("includeUppercase").checked,
+            includeNumbers: document.getElementById("includeNumbers").checked,
+            includeSymbols: document.getElementById("includeSymbols").checked,
+            pattern: document.getElementById("pattern").value.trim(),
+            startWithLetter: document.getElementById("startWithLetter").checked,
+            pinLength: parseInt(document.getElementById("pinLength").value)
+        };
+
+        // Wyczyść poprzednie błędy
+        document.getElementById("patternError").classList.add("hidden");
+
+        // Walidacja wzoru w trybie zaawansowanym
+        if (mode === "advanced") {
+            const patternValid = /^[L#!]+$/.test(settings.pattern);
+            if (!patternValid) {
+                document.getElementById("patternError").classList.remove("hidden");
                 return;
             }
-            generated = generateAdvancedPassword(pattern, startWithLetter);
-        } else if (mode === "pin") {
-            const pinLength = parseInt(document.getElementById("pinLength").value);
-            generated = generatePIN(pinLength);
         }
-        output += generated + "";
-        saveToHistory(generated);
+
+        let output = "";
+        let generatedCount = 0;
+
+        for (let i = 0; i < quantity; i++) {
+            await new Promise((resolve) => {
+                this.passwordGenerator.generatePassword(mode, settings, async (password) => {
+                    output += password + "\n";
+                    await this.historyManager.saveToHistory(password);
+                    generatedCount++;
+                    resolve();
+                });
+            });
+        }
+
+        document.getElementById("passwordOutput").value = output.trim();
+
+        if (mode !== "pin") {
+            await this.evaluatePasswordStrength(output.trim());
+        } else {
+            document.getElementById("strengthContainer").classList.add("hidden");
+        }
     }
 
-    document.getElementById("passwordOutput").textContent = output.trim();
-
-    if (mode !== "pin") {
-        evaluatePasswordStrength(output.trim());
-    } else {
-        document.getElementById("strengthContainer").classList.add("hidden");
-    }
-}
-
-// Funkcja kopiująca hasło do schowka
-function copyToClipboard() {
-    const passwordOutput = document.getElementById("passwordOutput").textContent;
-    navigator.clipboard.writeText(passwordOutput).then(() => {
-        alert(translations["copySuccess"] || "Password copied to clipboard!");
-    }).catch(err => {
-        alert(translations["copyError"] || "Error copying password.");
-    });
-}
-
-// Funkcja zapisująca hasło do historii z szyfrowaniem
-function saveToHistory(item) {
-    let history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    const encryptedItem = encrypt(item);
-    history.push(encryptedItem);
-    if (history.length > 10) history = history.slice(-10); // Zachowaj ostatnie 10 wpisów
-    localStorage.setItem("passwordHistory", JSON.stringify(history));
-    updateHistoryDisplay();
-}
-
-// Funkcja aktualizująca wyświetlaną historię haseł z odszyfrowaniem
-function updateHistoryDisplay() {
-    const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    const historyList = document.getElementById("historyList");
-    historyList.innerHTML = "";
-
-    history.forEach((encryptedItem, index) => {
-        const decryptedItem = decrypt(encryptedItem);
-        const listItem = document.createElement("li");
-        listItem.className = "flex justify-between items-center mb-2";
-        listItem.textContent = decryptedItem;
-        
-        const deleteButton = document.createElement("button");
-        deleteButton.textContent = translations["clearHistory"] || "Usuń";
-        deleteButton.className = "ml-4 py-1 px-2 bg-red-400 text-white rounded hover:bg-red-500 transition";
-        deleteButton.onclick = () => deleteHistoryItem(index);
-        
-        listItem.appendChild(deleteButton);
-        historyList.appendChild(listItem);
-    });
-}
-
-// Funkcja usuwająca pojedynczy wpis z historii
-function deleteHistoryItem(index) {
-    let history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    history.splice(index, 1);
-    localStorage.setItem("passwordHistory", JSON.stringify(history));
-    updateHistoryDisplay();
-}
-
-// Funkcja eksportująca historię haseł z odszyfrowaniem
-function exportHistory() {
-    const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    if (history.length === 0) {
-        alert(translations["exportError"] || "No history to export.");
-        return;
-    }
-    const decryptedHistory = history.map(item => decrypt(item));
-    const historyText = decryptedHistory.join("");
-    const blob = new Blob([historyText], { type: "text/plain" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "historia_haseł.txt";
-    link.click();
-
-    // Powiadomienie użytkownika
-    alert(translations["exportSuccess"] || "History exported successfully!");
-}
-
-// Funkcja czyszcząca całą historię haseł
-function clearHistory() {
-    if (confirm(translations["confirmClear"] || "Are you sure you want to clear all password history?")) {
-        localStorage.removeItem("passwordHistory");
-        updateHistoryDisplay();
-        alert(translations["clearSuccess"] || "History cleared successfully!");
-    }
-}
-
-// Funkcja przełączająca widoczność opcji generowania
-function toggleGenerationOptions(mode) {
-    document.getElementById("advancedOptions").classList.add("hidden");
-    document.getElementById("pinOptions").classList.add("hidden");
-
-    if (mode === "advanced") {
-        document.getElementById("advancedOptions").classList.remove("hidden");
-    } else if (mode === "pin") {
-        document.getElementById("pinOptions").classList.remove("hidden");
-    }
-}
-
-// Funkcja zapisująca aktualne ustawienia jako ulubione
-function saveSettings() {
-    const settings = {
-        passwordLength: document.getElementById("passwordLength").value,
-        includeUppercase: document.getElementById("includeUppercase").checked,
-        includeNumbers: document.getElementById("includeNumbers").checked,
-        includeSymbols: document.getElementById("includeSymbols").checked,
-        generationMode: document.getElementById("generationMode").value,
-        pattern: document.getElementById("pattern").value,
-        startWithLetter: document.getElementById("startWithLetter").checked,
-        pinLength: document.getElementById("pinLength").value,
-        quantity: document.getElementById("quantity").value,
-        encryptionKey: document.getElementById("encryptionKey").value
-    };
-
-    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
-    const name = prompt(translations["saveSettings"] || "Please enter a name for your favorite settings:");
-    if (name) {
-        favorites.push({ name, settings });
-        localStorage.setItem("favorites", JSON.stringify(favorites));
-        updateFavoritesSelector();
-        alert(translations["saveSettingsSuccess"] || "Settings saved successfully.");
+    static validateQuantity(quantity) {
+        if (isNaN(quantity) || quantity < 1 || quantity > 100) {
+            alert(this.translationManager.getTranslation("quantityError"));
+            return false;
+        }
+        return true;
     }
 
-    // Zapisz klucz szyfrowania
-    const encryptionKey = document.getElementById("encryptionKey").value;
-    if (encryptionKey) {
-        localStorage.setItem("encryptionKey", encryptionKey);
-    }
-}
-
-// Funkcja aktualizująca selector ulubionych ustawień
-function updateFavoritesSelector() {
-    const selector = document.getElementById("loadSettingsSelector");
-    selector.innerHTML = `<option value="" disabled selected data-i18n="loadFavorites">Wczytaj Ulubione Ustawienia</option>`;
-    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
-    favorites.forEach((fav, index) => {
-        const option = document.createElement("option");
-        option.value = index;
-        option.textContent = fav.name;
-        selector.appendChild(option);
-    });
-}
-
-// Funkcja wczytująca wybrane ulubione ustawienia
-function loadSettings(index) {
-    let favorites = JSON.parse(localStorage.getItem("favorites")) || [];
-    if (favorites[index]) {
-        const settings = favorites[index].settings;
-        document.getElementById("passwordLength").value = settings.passwordLength;
-        updateLengthDisplay(settings.passwordLength);
-        document.getElementById("includeUppercase").checked = settings.includeUppercase;
-        document.getElementById("includeNumbers").checked = settings.includeNumbers;
-        document.getElementById("includeSymbols").checked = settings.includeSymbols;
-        document.getElementById("generationMode").value = settings.generationMode;
-        toggleGenerationOptions(settings.generationMode);
-        document.getElementById("pattern").value = settings.pattern;
-        document.getElementById("startWithLetter").checked = settings.startWithLetter;
-        document.getElementById("pinLength").value = settings.pinLength;
-        document.getElementById("quantity").value = settings.quantity;
-        document.getElementById("encryptionKey").value = settings.encryptionKey;
-    }
-}
-
-// Funkcja eksportująca do KeePass (CSV format)
-function exportToKeePass() {
-    const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    if (history.length === 0) {
-        alert(translations["exportError"] || "Brak haseł do eksportu.");
-        return;
+    static validatePasswordLength(length) {
+        if (isNaN(length) || length < 8 || length > 32) {
+            alert(this.translationManager.getTranslation("passwordLengthError"));
+            return false;
+        }
+        return true;
     }
 
-    let csvContent = "Title,Username,Password,URL,Notes";
-    history.forEach((password, index) => {
-        const decryptedPassword = decrypt(password);
-        csvContent += `Password ${index + 1},,${decryptedPassword},,
-`;
-    });
+    static async evaluatePasswordStrength(password) {
+        // Implementacja oceny siły hasła
+        // Przykładowa implementacja
+        let strength = 0;
+        if (password.length >= 8) strength++;
+        if (/[A-Z]/.test(password)) strength++;
+        if (/[0-9]/.test(password)) strength++;
+        if (/[^A-Za-z0-9]/.test(password)) strength++;
 
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "keePass_export.csv";
-    link.click();
+        const strengthBar = document.getElementById("strengthBar");
+        const strengthText = document.getElementById("strengthText");
+        const strengthSuggestion = document.getElementById("strengthSuggestion");
 
-    alert(translations["exportSuccess"] || "Eksport do KeePass został pomyślnie wykonany!");
-}
+        if (strength <= 1) {
+            strengthBar.style.width = "25%";
+            strengthBar.style.backgroundColor = "#EF4444"; // Red-500
+            strengthText.textContent = this.translationManager.getTranslation("weak");
+            strengthSuggestion.textContent = this.translationManager.getTranslation("suggestion_length");
+        } else if (strength === 2) {
+            strengthBar.style.width = "50%";
+            strengthBar.style.backgroundColor = "#F59E0B"; // Yellow-500
+            strengthText.textContent = this.translationManager.getTranslation("medium");
+            strengthSuggestion.textContent = this.translationManager.getTranslation("suggestion_uppercase");
+        } else if (strength >= 3) {
+            strengthBar.style.width = "100%";
+            strengthBar.style.backgroundColor = "#10B981"; // Green-500
+            strengthText.textContent = this.translationManager.getTranslation("strong");
+            strengthSuggestion.textContent = this.translationManager.getTranslation("suggestion_symbols");
+        }
 
-// Funkcja eksportująca do LastPass (CSV format)
-function exportToLastPass() {
-    const history = JSON.parse(localStorage.getItem("passwordHistory")) || [];
-    if (history.length === 0) {
-        alert(translations["exportError"] || "Brak haseł do eksportu.");
-        return;
+        document.getElementById("strengthContainer").classList.remove("hidden");
     }
 
-    let csvContent = "url,username,password,notes";
-    history.forEach((password, index) => {
-        const decryptedPassword = decrypt(password);
-        csvContent += `,Password ${index + 1},${decryptedPassword},
-`;
-    });
-
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "lastPass_export.csv";
-    link.click();
-
-    alert(translations["exportSuccess"] || "Eksport do LastPass został pomyślnie wykonany!");
-}
-
-// Funkcja inicjalizująca ustawienia przy ładowaniu strony
-function initializeSettings() {
-    // Ustawienie trybu ciemnego jeśli zapisany
-    const darkMode = JSON.parse(localStorage.getItem("darkMode"));
-    if (darkMode) {
-        document.body.classList.add("dark-mode");
-        document.getElementById("darkModeToggle").textContent = "Przełącz na Tryb Jasny";
-    } else {
-        document.getElementById("darkModeToggle").textContent = "Przełącz na Tryb Ciemny";
+    static async copyToClipboard() {
+        const passwordOutput = document.getElementById("passwordOutput").value;
+        if (!passwordOutput) {
+            alert(this.translationManager.getTranslation("copyError"));
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(passwordOutput);
+            alert(this.translationManager.getTranslation("copySuccess"));
+        } catch (err) {
+            console.error("Failed to copy: ", err);
+            alert(this.translationManager.getTranslation("copyError"));
+        }
     }
 
-    // Pobierz język z localStorage lub ustaw domyślnie na polski
-    const language = localStorage.getItem("language") || "pl";
-    document.getElementById("languageSelector").value = language;
-    loadTranslations(language);
+    static async exportHistory() {
+        // Możesz dodać dodatkowe funkcje eksportu, jeśli potrzebne
+    }
 
-    // Aktualizacja selector ulubionych ustawień
-    updateFavoritesSelector();
+    static async displayFilteredHistory(filteredHistory) {
+        const historyList = document.getElementById("historyList");
+        historyList.innerHTML = "";
 
-    // Wczytaj klucz szyfrowania jeśli zapisany
-    const savedKey = localStorage.getItem("encryptionKey");
-    if (savedKey) {
-        document.getElementById("encryptionKey").value = savedKey;
+        filteredHistory.forEach((entry, index) => {
+            const listItem = document.createElement("li");
+            listItem.className = "flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded";
+
+            const passwordInfo = document.createElement("div");
+            passwordInfo.className = "flex flex-col";
+            passwordInfo.innerHTML = `
+                <span class="font-medium">${entry.password}</span>
+                ${entry.tag ? `<span class="text-sm text-gray-500 dark:text-gray-300">Tag: ${entry.tag}</span>` : ''}
+            `;
+
+            const deleteButton = document.createElement("button");
+            deleteButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 hover:text-red-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path id="deleteHistoryItemIcon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            `;
+            deleteButton.onclick = () => this.historyManager.deleteHistoryItem(index);
+            deleteButton.title = this.translationManager.getTranslation("clearHistory");
+
+            listItem.appendChild(passwordInfo);
+            listItem.appendChild(deleteButton);
+            historyList.appendChild(listItem);
+        });
+    }
+
+    static async updateHistoryDisplay() {
+        const historyList = document.getElementById("historyList");
+        historyList.innerHTML = "";
+        const history = await this.historyManager.getHistory();
+
+        history.forEach((entry, index) => {
+            const listItem = document.createElement("li");
+            listItem.className = "flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded";
+
+            const passwordInfo = document.createElement("div");
+            passwordInfo.className = "flex flex-col";
+            passwordInfo.innerHTML = `
+                <span class="font-medium">${entry.password}</span>
+                ${entry.tag ? `<span class="text-sm text-gray-500 dark:text-gray-300">Tag: ${entry.tag}</span>` : ''}
+            `;
+
+            const deleteButton = document.createElement("button");
+            deleteButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 hover:text-red-600 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path id="deleteHistoryItemIcon2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            `;
+            deleteButton.onclick = () => this.historyManager.deleteHistoryItem(index);
+            deleteButton.title = this.translationManager.getTranslation("clearHistory");
+
+            listItem.appendChild(passwordInfo);
+            listItem.appendChild(deleteButton);
+            historyList.appendChild(listItem);
+        });
+    }
+
+    static async addEventListeners() {
+        // Formularz Generowania Haseł
+        document.getElementById("passwordForm").addEventListener("submit", (e) => this.generatePassword(e));
+
+        // Wybór Trybu Generowania
+        document.getElementById("generationMode").addEventListener("change", (e) => {
+            const mode = e.target.value;
+            if (mode === "advanced") {
+                document.getElementById("advancedOptions").classList.remove("hidden");
+                document.getElementById("pinOptions").classList.add("hidden");
+            } else if (mode === "pin") {
+                document.getElementById("pinOptions").classList.remove("hidden");
+                document.getElementById("advancedOptions").classList.add("hidden");
+            } else {
+                document.getElementById("advancedOptions").classList.add("hidden");
+                document.getElementById("pinOptions").classList.add("hidden");
+            }
+        });
+
+        // Wybór Motywu
+        document.getElementById("themeSelector").addEventListener("change", (e) => {
+            const theme = e.target.value;
+            this.changeTheme(theme);
+        });
+
+        // Przyciski Modali
+        document.getElementById("settingsButton").addEventListener("click", () => {
+            document.getElementById("settingsModal").classList.remove("hidden");
+        });
+
+        // Obsługa importu z pliku w modalach
+        document.getElementById("importSettingsFile").addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                this.historyManager.importFromCSV(file);
+                this.closeExportModal();
+            }
+        });
+    }
+
+    static setupModalClose() {
+        // Zamknięcie modali po kliknięciu poza zawartość modalu
+        window.onclick = function(event) {
+            const settingsModal = document.getElementById("settingsModal");
+            const exportModal = document.getElementById("exportModal");
+            const tutorialModal = document.getElementById("tutorialModal");
+            if (event.target == settingsModal) {
+                settingsModal.classList.add("hidden");
+            }
+            if (event.target == exportModal) {
+                exportModal.classList.add("hidden");
+            }
+            if (event.target == tutorialModal) {
+                tutorialModal.classList.add("hidden");
+            }
+        }
     }
 }
 
-// Event Listener dla zmian trybu generowania
-document.getElementById("generationMode").addEventListener("change", function() {
-    toggleGenerationOptions(this.value);
-});
+class App {
+    constructor(cryptoManager, translationManager, passwordGenerator, historyManager) {
+        this.cryptoManager = cryptoManager;
+        this.translationManager = translationManager;
+        this.passwordGenerator = passwordGenerator;
+        this.historyManager = historyManager;
+        this.uiManager = UIManager;
+    }
 
-// Inicjalizacja ustawień przy ładowaniu strony
+    async initialize() {
+        await this.cryptoManager.initializeKey();
+        await this.translationManager.loadTranslations();
+        this.uiManager.initialize();
+        this.uiManager.setupModalClose();
+        await this.uiManager.updateHistoryDisplay();
+        this.uiManager.addEventListeners();
+        this.uiManager.addExportImportEventListeners();
+        this.uiManager.addHistoryFilterListener();
+        this.uiManager.addTutorialEventListener();
+    }
+}
+
+// Inicjalizacja Aplikacji
 document.addEventListener("DOMContentLoaded", () => {
-    initializeSettings();
-    updateHistoryDisplay();
+    UIManager.initialize();
 });
-
-// Funkcja aktualizująca wyświetlaną długość hasła
-function updateLengthDisplay(value) {
-    document.getElementById("lengthDisplay").textContent = value;
-}
