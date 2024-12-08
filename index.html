@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">Generator Bezpiecznych Haseł</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .dark-mode {
+            background-color: #1a202c;
+            color: #f7fafc;
+        }
+        .dark-mode .bg-white {
+            background-color: #2d3748;
+        }
+        .dark-mode .text-gray-700 {
+            color: #e2e8f0;
+        }
+        .transition {
+            transition: all 0.3s ease;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+    <!-- Dodanie CryptoJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="app.js" defer></script>
+</head>
+<body class="bg-gray-100 text-gray-800 transition">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold text-center mb-4" data-i18n="title">Generator Bezpiecznych Haseł</h1>
+        <div class="flex justify-end mb-4">
+            <button id="darkModeToggle" 
+                    class="py-2 px-4 bg-gray-500 text-white rounded hover:bg-gray-600 transition"
+                    onclick="toggleDarkMode()">Przełącz na Tryb Jasny</button>
+            <select id="languageSelector" 
+                    class="ml-4 py-2 px-4 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition"
+                    onchange="changeLanguage(this.value)">
+                <option value="pl">Polski</option>
+                <option value="en">English</option>
+            </select>
+        </div>
+        <div class="bg-white p-6 rounded shadow-md transition">
+            <label for="passwordLength" class="block text-sm font-medium text-gray-700" data-i18n="passwordLength">Długość Hasła</label>
+            <input id="passwordLength" type="range" min="8" max="32" value="16" 
+                   class="w-full mt-2 mb-4" oninput="updateLengthDisplay(this.value)">
+            <span id="lengthDisplay" class="block text-center font-bold text-gray-700">16</span>
+            
+            <div class="flex items-center justify-between mt-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="includeUppercase" class="form-checkbox" checked>
+                    <span class="ml-2 text-gray-700" data-i18n="includeUppercase">Uwzględnij Wielkie Litery</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="includeNumbers" class="form-checkbox" checked>
+                    <span class="ml-2 text-gray-700" data-i18n="includeNumbers">Uwzględnij Cyfry</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="includeSymbols" class="form-checkbox" checked>
+                    <span class="ml-2 text-gray-700" data-i18n="includeSymbols">Uwzględnij Symbole</span>
+                </label>
+            </div>
+            
+            <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700" data-i18n="generationMode">Tryb Generowania</label>
+                <select id="generationMode" 
+                        class="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition"
+                        onchange="toggleGenerationOptions(this.value)">
+                    <option value="standard" data-i18n="standard">Standardowe Hasło</option>
+                    <option value="advanced" data-i18n="advanced">Zaawansowane Hasło</option>
+                    <option value="pin" data-i18n="pin">Generator PIN</option>
+                </select>
+            </div>
+            
+            <div id="advancedOptions" class="mt-4 hidden">
+                <label class="flex items-center">
+                    <input type="checkbox" id="startWithLetter" class="form-checkbox">
+                    <span class="ml-2 text-gray-700" data-i18n="startWithLetter">Hasło zaczyna się od litery</span>
+                </label>
+                <label for="pattern" class="block text-sm font-medium text-gray-700 mt-2" data-i18n="pattern">Specyficzny Wzór</label>
+                <input id="pattern" type="text" placeholder="np. L#L#L#" 
+                       class="w-full mt-1 p-2 border border-gray-300 rounded transition" data-i18n-placeholder="patternPlaceholder">
+                <p class="text-sm text-gray-600 mt-1" data-i18n="patternDescription">L - litera, # - cyfra</p>
+            </div>
+            
+            <div id="pinOptions" class="mt-4 hidden">
+                <label for="pinLength" class="block text-sm font-medium text-gray-700" data-i18n="pinLength">Długość PIN</label>
+                <input id="pinLength" type="number" min="4" max="8" value="4" 
+                       class="w-full mt-2 p-2 border border-gray-300 rounded transition">
+            </div>
+            
+            <div class="mt-4">
+                <label for="quantity" class="block text-sm font-medium text-gray-700" data-i18n="quantity">Ilość Haseł</label>
+                <input id="quantity" type="number" min="1" max="10" value="1" 
+                       class="w-full mt-2 p-2 border border-gray-300 rounded transition">
+            </div>
+            
+            <div class="mt-4">
+                <label for="encryptionKey" class="block text-sm font-medium text-gray-700" data-i18n="encryptionKey">Klucz Szyfrowania</label>
+                <input id="encryptionKey" type="password" 
+                       class="w-full mt-1 p-2 border border-gray-300 rounded transition"
+                       placeholder="Wprowadź własny klucz szyfrowania">
+            </div>
+            
+            <button id="generateButton" 
+                    class="w-full mt-4 py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+                    onclick="generate()" data-i18n="generate">Generuj</button>
+            
+            <div id="passwordOutput" 
+                 class="mt-4 p-4 bg-gray-200 text-center text-lg font-mono rounded relative" data-i18n="passwordOutput">
+                Twoje hasło pojawi się tutaj
+                <button onclick="copyToClipboard()" 
+                        class="absolute top-2 right-2 bg-gray-400 text-white px-2 py-1 rounded hover:bg-gray-500 transition"
+                        data-i18n="copy">Kopiuj</button>
+            </div>
+            
+            <div id="strengthContainer" class="mt-2 hidden">
+                <label class="block text-sm font-medium text-gray-700" data-i18n="strength">Siła:</label>
+                <div class="w-full bg-gray-300 rounded-full h-2.5 mt-1">
+                    <div id="strengthBar" class="bg-red-600 h-2.5 rounded-full w-0"></div>
+                </div>
+                <span id="strengthText" class="block text-center text-sm font-bold mt-1" data-i18n="weak">Słaba</span>
+                <p id="strengthSuggestion" class="text-sm text-gray-600 mt-1"></p>
+            </div>
+        </div>
+        
+        <h2 class="text-xl font-bold mt-6" data-i18n="passwordHistory">Historia Haseł</h2>
+        <ul id="historyList" class="mt-2 bg-gray-100 p-4 rounded shadow-md"></ul>
+        <div class="flex gap-4 mt-4">
+            <button id="exportButton" 
+                    class="py-2 px-4 bg-green-500 text-white rounded hover:bg-green-600 transition"
+                    onclick="exportHistory()" data-i18n="exportHistory">Eksportuj Historię</button>
+            <button id="clearHistoryButton" 
+                    class="py-2 px-4 bg-red-500 text-white rounded hover:bg-red-600 transition"
+                    onclick="clearHistory()" data-i18n="clearHistory">Wyczyść Historię</button>
+        </div>
+        
+        <button id="saveSettingsButton" 
+                class="mt-4 py-2 px-4 bg-purple-500 text-white rounded hover:bg-purple-600 transition"
+                onclick="saveSettings()" data-i18n="saveSettings">Zapisz Ustawienia</button>
+        <select id="loadSettingsSelector" 
+                class="ml-4 py-2 px-4 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition"
+                onchange="loadSettings(this.value)">
+            <option value="" disabled selected data-i18n="loadFavorites">Wczytaj Ulubione Ustawienia</option>
+        </select>
+        
+        <div class="flex gap-4 mt-4">
+            <button id="exportKeePass" 
+                    class="py-2 px-4 bg-blue-700 text-white rounded hover:bg-blue-800 transition"
+                    onclick="exportToKeePass()" data-i18n="exportKeePass">Eksportuj do KeePass</button>
+            <button id="exportLastPass" 
+                    class="py-2 px-4 bg-blue-700 text-white rounded hover:bg-blue-800 transition"
+                    onclick="exportToLastPass()" data-i18n="exportLastPass">Eksportuj do LastPass</button>
+        </div>
+    </div>
+</body>
+</html>
